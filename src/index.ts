@@ -1,5 +1,6 @@
 import axios from "axios";
 import * as cherrio from "cheerio";
+import * as cron from "node-cron";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { webHookUrl, threadId } : { webHookUrl: string, threadId: string } = require("../config.json");
@@ -8,22 +9,110 @@ if (!webHookUrl || !threadId) {
 	throw new Error("Invalid config.json");
 }
 
+const cache = new Map<string, {messageId: string, content: string}>();
+
+cron.schedule("*/3 * * * *", async () => {
+  const body = await scrape() || "本日の試合はありません";
+
+  if (cache.get(threadId)?.content === body) {
+    return;
+  }
+
+  console.log(cache.get(threadId));
+
+  if (!cache.get(threadId)){
+    const sent = await axios({
+      url: webHookUrl + `?thread_id=${threadId}&wait=true`,
+      method: "post",
+      headers: {
+        "Accept": "application/json",
+        "Content-type": "application/json",
+      },
+      data: {
+        content: body
+      }
+    });
+    const messageId = sent.data.id;
+    console.log(messageId);
+    return cache.set(threadId, { messageId: messageId, content: body });
+  }
+
+  const messageId = cache.get(threadId)?.messageId;
+  if (!messageId) {
+    return console.error("エラーが発生しました");
+  }
+  await axios({
+  url: `${webHookUrl}/messages/${messageId}?thread_id=${threadId}&wait=true`,
+  method: "patch",
+  headers: {
+    "Accept": "application/json",
+    "Content-type": "application/json",
+  },
+  data: {
+    content: body
+  }
+	});
+
+  cache.set(threadId, { messageId: messageId, content: body });
+});
+
+/*
 (async () => {
   const body = await scrape() || "本日の試合はありません";
 
+  /*
+  if (cache.get(threadId)?.content === body) {
+    return;
+  }
+
+  
+
+  console.log(cache.get(threadId));
+
+  if (!cache.get(threadId)){
+    const sent = await axios({
+      url: webHookUrl + `?thread_id=${threadId}&wait=true`,
+      method: "post",
+      headers: {
+        "Accept": "application/json",
+        "Content-type": "application/json",
+      },
+      data: {
+        content: body
+      }
+    });
+    const messageId = sent.data.id;
+    console.log(messageId);
+    return cache.set(threadId, { messageId: messageId, content: body });
+  }
+
+  const messageId = cache.get(threadId)?.messageId;
+  if (!messageId) {
+    return console.error("エラーが発生しました");
+  }
   await axios({
-		url: webHookUrl + `?thread_id=${threadId}`,
-		method: "post",
-		headers: {
-			"Accept": "application/json",
-			"Content-type": "application/json",
-		},
-		data: {
-      content: body
-    }
+  url: `${webHookUrl}/messages/${messageId}?thread_id=${threadId}&wait=true`,
+  method: "patch",
+  headers: {
+    "Accept": "application/json",
+    "Content-type": "application/json",
+  },
+  data: {
+    content: body
+  }
 	});
+
+  cache.set(threadId, { messageId: messageId, content: body });
+  
+  /*
+  const messageId = sent.data.id;
+  console.log(messageId);
+
+  cache.set(threadId, { messageId: messageId, content: body });
+  console.log(cache);
 })();
 
+*/
 async function scrape(): Promise<string | null> {
   try {
     let body = "";
